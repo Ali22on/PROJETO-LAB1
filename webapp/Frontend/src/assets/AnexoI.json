@@ -1,0 +1,41 @@
+{
+  "funcoes": [
+    "Pintor",
+    "Caldeireiro",
+    "Mecânico",
+    "Eletricista",
+    "Operador"
+  ],
+  "areas": [
+    {
+      "nome": "Oficina Central",
+      "tipo": "Complementar",
+      "latitude": -12.854431470023655,
+      "longitude": -38.4543315428528
+    },
+    {
+      "nome": "Galpão XYZ",
+      "tipo": "Produtiva",
+      "latitude": -12.854285030614719,
+      "longitude": -38.454795565011494
+    },
+    {
+      "nome": "Gaveteiro de Andaimes",
+      "tipo": "Complementar",
+      "latitude": -12.85393985167103,
+      "longitude": -38.45551439702763
+    },
+    {
+      "nome": "Bomba 178",
+      "tipo": "Produtiva",
+      "latitude": -12.854598829243173,
+      "longitude": -38.4542001146101
+    },
+    {
+      "nome": "Tanques",
+      "tipo": "Produtiva",
+      "latitude": -12.854656358948844,
+      "longitude": -38.4549028533724
+    }
+  ]
+}
