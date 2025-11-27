@@ -41,7 +41,7 @@ const ship_type = (byte: number) => {
 
 export const color_map = new Map<ShipType, string>([
     [ShipType.SUBMARINE, 'green'],
-    [ShipType.AIRCRAFT_CARRIER, 'red'],
+    [ShipType.AIRCRAFT_CARRIER, 'cyan'],
     [ShipType.BATTLESHIP, 'orange'],
     [ShipType.SEAPLANE, 'purple'],
     [ShipType.CRUISER, 'yellow'],
@@ -56,3 +56,13 @@ export const getBlockColor = (byte: number) => {
     else return color_map.get(ship_type(byte)) || 'blue'; //water
 }
 
+export const is_ship_dead = (ship: number, map: number[]) =>
+{
+    for (let index = 0; index < map.length; index++) {
+        if (map[index] === ship)
+        {
+            return false;
+        }
+    }
+    return true;
+}

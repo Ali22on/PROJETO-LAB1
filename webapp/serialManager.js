@@ -1,5 +1,5 @@
 const { SerialPort } = require('serialport');
-const PORT = 'COM11';
+const PORT = 'COM3';
 const BAUD_RATE = 115200;
 const listPorts = async () => {
     try {
@@ -78,15 +78,18 @@ const setOnFrameReceived = (callback) => {
 };
 
 let sp = null;
+let gi = 0;
 const startSerial = (port, baudRate) => {
     port = port || PORT;
     baudRate = baudRate || BAUD_RATE;
-    sp = new SerialPort({ path: port, baudRate: baudRate });
+    sp = new SerialPort({ path: port, baudRate: baudRate, stopBits: 1, parity: 'none', dataBits: 8 });
     sp.on('open', () => {
         console.log('Serial Port Opened', sp.path, sp.baudRate);
     });
     sp.on('data', (data) => {
+        
         for (let i = 0; i < data.length; i++) {
+            console.log(gi++, data[i], String.fromCharCode(data[i]));
             GAMESTATE[game_index] = data[i];
             game_index++;
             if (game_index >= 132) {
@@ -98,6 +101,12 @@ const startSerial = (port, baudRate) => {
 
             }
         };
+    });
+    sp.on('error', (err) => {
+        console.log('Error: ', err.message);
+    });
+    sp.on('close', () => {
+        console.log('Serial Port Closed');
     });
 }
 
@@ -119,7 +128,11 @@ const sendFrame = (frameData) => {
         });
     }
 };
-
+// listPorts().then((data) => {
+//     console.log(`Found ${data.length} ports.`, data.map(p => p.path).join(', '));
+    
+// });
+startSerial(PORT, BAUD_RATE);
 module.exports = {
     setOnFrameReceived,
     startSerial,
