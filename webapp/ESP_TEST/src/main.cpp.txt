@@ -1,0 +1,649 @@
+#include <lvgl.h>
+#include <TFT_eSPI.h>
+#include <../lib/ui/ui.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <ArduinoOTA.h>
+#include <../lib/boardstuff/boardstuff.h>
+#define MQTT_SOCKET_TIMEOUT 2
+#include <../lib/pubsubclient-2.8/src/PubSubClient.h>
+#include <../include/Creds/WifiCred.h>
+#include <../include/Creds/HiveMQCred.h>
+#include <../lib/Time-master/TimeLib.h>
+#include <NightMareTCP.h>
+#include <NightMareNetwork.h>
+#include <ESPmDNS.h>
+#include <HTTPClient.h>
+#include <LittleFS.h>
+#include <FS.h>
+#include <ArduinoJson.h>
+#include <UserDefines.h>
+#include "esp_task_wdt.h"
+#include <lvgl_helper.h>
+#define TOUCH_TIMEOUT millis() - control_variables.last_touch > control_variables.seconds_to_sleep * 1000 && control_variables.seconds_to_sleep > 0
+
+/******************************************/
+#include <Configs.h>
+#include <Debouncer.h>
+extern Configuration Configs;
+extern Internals control_variables;
+static TaskHandle_t *SecondCoreTaskHandle = NULL;
+#include <LEDController.h>
+/******************************************/
+// #define COMPILE_SERIAL
+#define DEVICE_NAME "Alan"
+#define SERVER_HOST "Feymann"
+NightMareTCPClient tcpClient(DEVICE_NAME, true);
+
+void handle_gateway(const char *topic, String incommingMessage);
+/*Don't forget to set Sketchbook location in File/Preferencesto the path of your UI project (the parent foder of this INO file)*/
+WiFiClientSecure hive_client;
+PubSubClient HiveMQ(hive_client);
+WiFiClient local_client;
+PubSubClient LocalMQ(local_client);
+
+/// @brief Gets the MQTT topic in the proper format ie. with 'DEVICE_NAME/' before the topic.
+/// @param topic The topic without the owner prefix.
+/// @return The topic with the owner prefix.
+String MqttTopic(String topic)
+{
+#ifndef DEVICE_NAME
+#error Please define device name
+#endif
+  String topicWithOwner = "";
+  topicWithOwner += DEVICE_NAME;
+  if (topic != "" || topic != NULL)
+  {
+    if (topic[0] != '/')
+      topicWithOwner += "/";
+    topicWithOwner += topic;
+  }
+  return topicWithOwner;
+}
+
+/// @brief Sends an message to the Mqtt Server
+/// @param topic The topic to the message
+/// @param message The message
+/// @param insertOwner Use the MqttTopic function to insert device's name before the topic.
+/// @param retained Retained message or normal
+void MqttSend(String topic, String message, bool insertOwner = true, bool retained = false)
+{
+  int8_t result = -1;
+  if (insertOwner)
+    topic = MqttTopic(topic);
+  if (control_variables.tcp_state)
+    tcpClient.send("topic::" + topic + "payload::" + message);
+  else if (control_variables.mqttState == MQTT_LOCAL)
+    result = LocalMQ.publish(topic.c_str(), message.c_str(), retained);
+  else if (control_variables.mqttState == MQTT_HIVE)
+    result = HiveMQ.publish(topic.c_str(), message.c_str(), retained);
+  if (Debug.output)
+  {
+    Serial.printf("[%d] Sending: '%s' : '%s' [%d]\n", control_variables.mqttState, topic.c_str(), message.c_str(), result);
+  }
+}
+
+void Send_to_MQTT(String topic, String message)
+{
+  MqttSend(topic, message, false, false);
+}
+
+#pragma region OTA
+void startOTA()
+{
+  String type;
+  // is_updating = true;
+  //  caso a atualização esteja sendo gravada na memória flash externa, então informa "flash"
+  if (ArduinoOTA.getCommand() == 0)
+    type = "flash";
+  else                   // caso a atualização seja feita pela memória interna (file system), então informa "filesystem"
+    type = "filesystem"; // U_SPIFFS
+  // exibe mensagem junto ao tipo de gravação
+  Serial.println("Start updating " + type);
+  control_variables.updating = true;
+}
+// exibe mensagem
+void endOTA()
+{
+  Serial.println("\nEnd");
+  control_variables.updating = false;
+}
+// exibe progresso em porcentagem
+void progressOTA(unsigned int progress, unsigned int total)
+{
+  byte update_progress = round((float)progress / total * 100);
+  lv_timer_handler();
+  Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
+}
+
+void errorOTA(ota_error_t error)
+{
+
+  Serial.printf("Error[%u]: ", error);
+  if (error == OTA_AUTH_ERROR)
+    Serial.println("Auth Failed");
+  else if (error == OTA_BEGIN_ERROR)
+    Serial.println("Begin Failed");
+  else if (error == OTA_CONNECT_ERROR)
+    Serial.println("Connect Failed");
+  else if (error == OTA_RECEIVE_ERROR)
+    Serial.println("Receive Failed");
+  else if (error == OTA_END_ERROR)
+    Serial.println("End Failed");
+  control_variables.updating = false;
+}
+#pragma endregion
+
+/// @brief Attempts to connect, reconnect to the MQTT broker .
+/// @return True if successful or false if not.
+bool MQTT_Reconnect(PubSubClient &MqttClient, String info = "no-info")
+{
+
+#define COMPILE_SERIAL true
+  String clientID = DEVICE_NAME;
+  clientID += "-0x";
+  clientID += String(random(), HEX);
+#ifdef COMPILE_SERIAL
+  Serial.printf("Atemptting to connect to: %s\n", info.c_str());
+#endif
+  esp_task_wdt_reset();
+  if (MqttClient.connect(clientID.c_str(), MQTT_USER, MQTT_PASSWD))
+  {
+    bool sub = MqttClient.subscribe("SysInfo/#");
+    // HiveMQ.subscribe(MqttTopic("/console/in").c_str());
+#ifdef COMPILE_SERIAL
+    Serial.printf("MQTT Connected subscribe was: %s\n", sub ? "success" : "failed");
+#endif
+    return true;
+  }
+  else
+  {
+#ifdef COMPILE_SERIAL
+    Serial.printf("[%s] Can't Connect to MQTT Error Code : [%d] = %s\n", info.c_str(), MqttClient.state(), mqttStatusToString(MqttClient.state()));
+#endif
+    return false;
+  }
+}
+
+
+/// @brief Recieves an mqtt message and passes it to the gateway handler.
+/// @param topic the topic of the message.
+/// @param payload the payload.
+/// @param length length of the payload.
+void HandleMqtt(char *topic, byte *payload, unsigned int length)
+{
+  String incommingMessage = "";
+  for (int i = 0; i < length; i++)
+    incommingMessage += (char)payload[i];
+  handle_gateway(topic, incommingMessage); 
+}
+
+void handle_gateway(const char *topic, String incommingMessage)
+{
+  Serial.printf("[MQTT] %s: %s\n", topic, incommingMessage.c_str());
+}
+
+bool getTime()
+{
+  bool result = false;
+#ifdef COMPILE_SERIAL
+  Serial.println("Syncing Time Online");
+#endif
+  WiFiClient client;
+  HTTPClient http;
+  http.begin(client, "http://worldtimeapi.org/api/timezone/America/Bahia.txt"); // HTTP
+  int httpCode = http.GET();
+  // httpCode will be negative on error
+  if (httpCode > 0)
+  {
+    // HTTP header has been send and Server response header has been handled
+    // file found at server
+    if (httpCode == HTTP_CODE_OK)
+    {
+#ifdef COMPILE_SERIAL
+      Serial.printf("[HTTP] OK... code: %d\n", httpCode);
+#endif
+      String payload = http.getString();
+      char str[payload.length() + 1];
+      strcpy(str, payload.c_str());
+      char *pch;
+      pch = strtok(str, ":\n");
+      int i = 0;
+      int raw_offset = 0;
+      while (pch != NULL)
+      {
+        i++;
+        if (i == 23)
+        {
+          raw_offset = atoi(pch);
+        }
+        if (i == 27)
+        {
+          setTime(atoi(pch) + raw_offset);
+        }
+        // printf("%d: %s\n", i, pch);
+        pch = strtok(NULL, ":\n");
+      }
+#ifdef COMPILE_SERIAL
+      String msg = "Time Synced ";
+      msg += millis();
+      msg += "ms from boot.";
+      Serial.println(msg);
+#endif
+      result = true;
+    }
+    else
+    {
+#ifdef COMPILE_SERIAL
+      Serial.printf("[HTTP] Error code: %d\n", httpCode);
+#endif
+    }
+  }
+  else
+  {
+#ifdef COMPILE_SERIAL
+    Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+#endif
+  }
+  http.end();
+  return result;
+}
+
+/// @brief Syncs the time with an online source or sets the time to a specified value.
+///
+/// This function attempts to sync the system time with an online source if the `time` parameter is set to UINT32_MAX.
+/// If syncing online fails or if `time` is not UINT32_MAX, it sets the system time to the value of `time`.
+/// After setting the time, it updates various system control variables and checks for the existence of a specific file in the filesystem.
+///
+/// @param time The UNIX timestamp to set the system time to. If set to UINT32_MAX, the function attempts to sync the time online.
+/// @return bool True if the time was successfully synced or set, false otherwise.
+bool SyncTime(uint32_t time)
+{
+  bool result = false;
+  // If no argument try to sync time online
+  if (time == UINT32_MAX)
+  {
+    result = getTime();
+  }
+  // if there was an arg setTime to its arg
+  if (!result && time != UINT32_MAX)
+  {
+    setTime(time);
+    result = true;
+  }
+
+  // If time was successfully synced
+  if (result)
+  {
+    control_variables.time_synced = true;
+  }
+
+  return result;
+}
+
+void AutoSyncTime()
+{
+  if (control_variables.time_synced)
+  {
+    return;
+  }
+
+  SyncTime(UINT32_MAX);
+}
+
+void mqtt_reconect_task()
+{
+  if (!control_variables.wifi_config_finished)
+    return;
+
+  // Serial.printf("[RAW2] TCP: (%d) || MQTT: (%d) \n", tcpClient.connected(), HiveMQ.connected());
+  if (control_variables.tcp_state)
+    return;
+
+#define DEBUG_MQTT_CONN 1
+
+  static uint32_t local_last_mqtt_attempt = 0;
+  static uint32_t last_mnds_query = 0;
+  bool local_mqtt_connected = LocalMQ.connected();
+  // if local server is connected nothing needs to be done.
+  if (local_mqtt_connected)
+  {
+#ifdef DEBUG_MQTT_CONN
+    Serial.printf("Local already MQTT Connected\n");
+#endif
+    return;
+  }
+
+  // Every 24 hours query the mDNS server for the local mqtt server ip addr.
+  // pubsub lib does not support mDNS hostname so we need to do it manually (why).
+  if (now() - last_mnds_query > 24 * HOUR || last_mnds_query == 0)
+  {
+    IPAddress server_ip = MDNS.queryHost(LOCAL_MQTT_SERVER_HOSTNAME, 1000);
+    if (server_ip != IPAddress())
+    {
+      control_variables.localMqttServerIp = server_ip.toString();
+      LocalMQ.setServer(control_variables.localMqttServerIp.c_str(), LOCAL_MQTT_PORT);
+#ifdef DEBUG_MQTT_CONN
+      Serial.printf("Querying mDNS for local server IP. hostname: %s result: %s\n", LOCAL_MQTT_SERVER_HOSTNAME, server_ip.toString().c_str());
+#endif
+    }
+    else
+    {
+#ifdef DEBUG_MQTT_CONN
+      Serial.printf("mDNS query failed for '%s'\n", LOCAL_MQTT_SERVER_HOSTNAME);
+#endif
+    }
+    last_mnds_query = now();
+  }
+
+  bool hive_mqtt_connected = HiveMQ.connected();
+  bool local_con_res = false;
+  // if hivemq is connected and the last attempt was more than 60 seconds ago, do not try to connect
+  // to the local server again or if not connected to hivemq try to connect to the local server.
+  if ((hive_mqtt_connected && (now() - local_last_mqtt_attempt) > 60) || !hive_mqtt_connected)
+  {
+#ifdef DEBUG_MQTT_CONN
+    Serial.printf("Attempting to Connect to local MQTT, HiveMq is [%d] last attempt was: [%s]\n",
+                  hive_mqtt_connected,
+                  timestampToDateString(local_last_mqtt_attempt, OnlyTime).c_str());
+#endif
+    local_con_res = MQTT_Reconnect(LocalMQ, formatString("Local MQTT [%d]", hive_mqtt_connected));
+    local_last_mqtt_attempt = now();
+  }
+
+  // if the local server is connected and the hivemq is too, disconnect from hivemq.
+  // and nothing else needs to be done.
+  if (local_con_res)
+  {
+    control_variables.mqttState = MQTT_LOCAL;
+    if (hive_mqtt_connected)
+    {
+#ifdef DEBUG_MQTT_CONN
+      Serial.printf("Local MQTT Connected, Disconnecting from HiveMQ\n");
+#endif
+      HiveMQ.disconnect();
+    }
+    return;
+  }
+  // finally if we got here, the local server is not connected and we can try to connect to hivemq.
+  // if we are not already connected.
+  if (!hive_mqtt_connected)
+  {
+#ifdef DEBUG_MQTT_CONN
+    Serial.printf("Local MQTT not found, Attempt to connect to HiveMQ\n");
+#endif
+    bool hivemq_con_res = MQTT_Reconnect(HiveMQ, "Hive MQTT");
+    if (hivemq_con_res)
+    {
+      control_variables.mqttState = MQTT_HIVE;
+    }
+    else
+    {
+      control_variables.mqttState = MQTT_DISCONNECTED;
+    }
+  }
+}
+
+void start_WiFi(WiFiPresets preset)
+{
+  Serial.printf("Starting Wifi Config.\n");
+  Serial.printf("Preset used [%d]: %s\n", preset, get_preset_name(preset));
+  String ssid = "";
+  String passwd = "";
+  if (preset == Preset1 || preset == Nopreset)
+  {
+    ssid = WIFISSID_1;
+    passwd = WIFIPASSWD_1;
+    Turing.setIpManually("10.10.2.184");
+  }
+  else if (preset == Preset2)
+  {
+    ssid = WIFISSID_2;
+    passwd = WIFIPASSWD_2;
+    Turing.setIpManually("10.10.4.100");
+  }
+  else if (preset == Preset3)
+  {
+    ssid = WIFISSID_3;
+    passwd = WIFIPASSWD_3;
+  }
+
+  WiFi.begin(ssid.c_str(), passwd.c_str());
+  control_variables.wifi_start_millis = millis();
+  LED.set_mode(0x0000ff, BLINK, 500);\
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    if (millis() - control_variables.wifi_start_millis > 10000)
+    {
+      ESP.restart();
+    }
+  }
+  finish_WiFi();
+  
+}
+
+void finish_WiFi()
+{
+
+  Serial.printf("Finishing Wifi Config.\n");
+  ArduinoOTA.setHostname(DEVICE_NAME);
+  ArduinoOTA.onStart(startOTA);
+  ArduinoOTA.onEnd(endOTA);
+  ArduinoOTA.onProgress(progressOTA);
+  ArduinoOTA.onError(errorOTA);
+  ArduinoOTA.begin();
+  if (!control_variables.time_synced)
+  {
+    AutoSyncTime();
+    control_variables.last_sync_attempt = now();
+    if (control_variables.time_synced)
+      control_variables.boot_time = now() - millis() / 1000;
+  }
+
+  // lv_label_set_text_fmt(ui_lbMenuInfo, "%s - %s", DOW_DATE_STR(control_variables.boot_time), TIME_STR(control_variables.boot_time));
+  //  hive_client.setInsecure();
+  hive_client.setCACert(root_ca);
+  hive_client.setCertificate(root_ca);
+  HiveMQ.setSocketTimeout(1);
+  HiveMQ.setServer(MQTT_URL, MQTT_PORT);
+  HiveMQ.setCallback(HandleMqtt);
+  IPAddress server_ip = MDNS.queryHost(LOCAL_MQTT_SERVER_HOSTNAME, 1000);
+  if (server_ip != IPAddress())
+  {
+    control_variables.localMqttServerIp = server_ip.toString();
+    LocalMQ.setServer(control_variables.localMqttServerIp.c_str(), LOCAL_MQTT_PORT);
+  }
+  LocalMQ.setCallback(HandleMqtt);
+  // LocalMQ.setSocketTimeout(1);
+  hive_client.setTimeout(2);
+  local_client.setTimeout(2);
+  // tcpClient.client->setTimeout(1);
+  tcpClient.setMessageHandler(HandleTcp);
+  tcpClient.setCllientInfo("AlanTuring", "2.4\" Garden Graphic Display");
+  mqtt_reconect_task();
+  MqttSend("All/control", "get_state", false);
+  LED.turn_off();
+  control_variables.wifi_config_finished = true;
+  control_variables.wifi_stage = WiFi_finishing_connect;
+  control_variables.startup_stage = STARTUP_DONE;
+}
+
+bool WiFiConnected()
+{
+
+  if (WiFi.status() == WL_CONNECTED && (control_variables.wifi_stage == WiFi_connecting || control_variables.wifi_stage == WiFi_cant_connect))
+  {
+    return true;
+  }
+  else
+  {
+    return false;
+  }
+}
+
+
+void setup()
+{
+
+  set_backlight(0);
+  Serial.begin(115200); /* prepare for possible serial debug */
+  SDCard.init();
+  board_init();
+
+  control_variables.fs_mounted = LittleFS.begin(true);
+  Serial.printf("...FS mount: %s...\n", control_variables.fs_mounted ? "Success" : "Failed");
+  bool config_load_result = Configs.LoadFromFile();
+  Serial.printf("...Config Load was: %s...\n}", config_load_result ? "Success" : "Failed");
+  set_led(0, 0);
+  Serial.printf("Config: ......\n%s\n......\n", Configs.ToString().c_str());
+  Serial.printf("Welcome to NightMare Systems. %s unit.\n", DEVICE_NAME);
+  lvgl_init();
+  config_lvgl_touch();
+  set_savescreen_stage(SaveScreenStage::Loading);
+  set_current_screen(SaveScreen);
+  screen_sleep(SCREEN_ENABLED, true);
+
+  Timers.create("synctime", 300, AutoSyncTime, false);=
+  Serial.printf("Setup done at %d ms \n", millis());
+
+  xTaskCreatePinnedToCore(
+      SecondCoreTask,       /* Task function. */
+      "SecondCoreTask",     /* name of task. */
+      10000,                /* Stack size of task */
+      NULL,                 /* parameter of the task */
+      1,                    /* priority of the task */
+      SecondCoreTaskHandle, /* Task handle to keep track of created task */
+      0);                   /* pin task to core 0 */
+  LED.turn_off();
+  init_warning_anim();
+  start_WiFi(Preset1);
+ 
+}
+
+void loop()
+{
+  ArduinoOTA.handle();
+  lv_timer_handler();
+  HiveMQ.loop();
+  LocalMQ.loop();
+  LED.run();
+
+  if (Serial.available() > 0)
+  {
+    String _input = "";
+    while (Serial.available() > 0)
+    {
+      char c = Serial.read();
+      // Control bytes from PIO implementation of serial monitor.
+      if (c != 10 && c != 13)
+      {
+        _input += c;
+      }
+    }
+    // set_buttons_visible(_input.toInt());
+    Serial.print("[Serial] ");
+    Serial.println(_input);
+    Send_to_MQTT("Adler/console/in", _input);
+    return;
+    if (_input == "scan")
+    {
+      WiFi_Scan();
+    }
+    else if (_input == "wntest")
+    {
+      WarningManager.RaiseWarning("Test1", WARNING_HIGH, "Test Warning 1");
+      WarningManager.RaiseWarning("Test2", WARNING_LOW, "Test Warning 2");
+      WarningManager.RaiseWarning("Test3", WARNING_HIGH, "Test Warning 3");
+      WarningManager.RaiseWarning("Test4", WARNING_LOW, "Test Warning 4");
+      WarningManager.RaiseWarning("Test5", WARNING_HIGH, "Test Warning 5");
+      WarningManager.RaiseWarning("Test6", WARNING_LOW, "Test Warning 6");
+      WarningManager.RaiseWarning("Test7", WARNING_HIGH, "Test Warning 7");
+    }
+    else if (_input == "touch")
+    {
+      Serial.printf("Touch: %d current: %u Wakeup: %d Stage: %d\n", control_variables.enable_touch, millis(), control_variables.wake_up_millis, control_variables.screen_stage);
+    }
+    else if (_input.indexOf("screen") >= 0)
+    {
+      int screen = _input.substring(_input.indexOf("screen") + 6).toInt();
+      if (screen >= 0 && screen <= PANEL_COUNT)
+      {
+        Serial.printf("setting screen: %d\n", screen);
+        set_current_screen(Panel(screen));
+      }
+    }
+    else if (_input.indexOf("wn") >= 0)
+    {
+      int wn = _input.substring(_input.indexOf("wn") + 2).toInt();
+      if (wn >= 0 && wn <= 2)
+      {
+        Serial.printf("setting warning: %d\n", wn);
+        WarningManager.setWarningAnim(WARNING_SEVERITY(wn));
+      }
+    }
+    else if (_input == "mdns")
+    {
+      Turing.findIp();
+      Turing.setIpManually("10.10.2.79");
+    }
+    else if (_input == "sd")
+    {
+      
+      Serial.printf("SD mount = [%d] size = %d MB used = %f MB\n", SDCard.mount, SDCard.totalMb, SDCard.used * SDCard.totalMb);
+      SDCard.test();
+    }
+    else if (_input == "wifi")
+    {
+      Serial.printf("wifi stage: %d\n", control_variables.wifi_stage);
+    }
+    else if (_input.indexOf("http") >= 0)
+    {
+      int wn = _input.substring(_input.indexOf("http") + 4).toInt();
+      TuringRequest(TURINGAPI(wn), true);
+    }
+    else if (_input.indexOf("btn") >= 0)
+    {
+      int wn = _input.substring(_input.indexOf("btn") + 3).toInt();
+      if (wn == 0)
+      {
+        set_buttons(BTNS_NONE);
+      }
+      else if (wn == 1)
+      {
+        set_buttons(BTNS_NONE | BTNS_LEFT);
+      }
+      else if (wn == 2)
+      {
+        set_buttons(BTNS_NONE | BTNS_MID);
+      }
+      else if (wn == 3)
+      {
+        set_buttons(BTNS_NONE | BTNS_RIGHT);
+      }
+      else if (wn == 4)
+      {
+        set_buttons(BTNS_NONE | BTNS_LEFT | BTNS_MID);
+      }
+      else if (wn == 5)
+      {
+        set_buttons(BTNS_NONE | BTNS_LEFT | BTNS_RIGHT);
+      }
+      else if (wn == 6)
+      {
+        set_buttons(BTNS_NONE | BTNS_MID | BTNS_RIGHT);
+      }
+      else if (wn == 7)
+      {
+        set_buttons(BTNS_NONE | BTNS_LEFT | BTNS_MID | BTNS_RIGHT);
+      }
+
+      Serial.printf("setting button: %d\n", wn);
+    }
+    else
+    {
+      TuringRequest(_input, true);
+    }
+  }
+
+
+}
