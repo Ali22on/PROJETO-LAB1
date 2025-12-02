@@ -4,17 +4,24 @@ import { io, Socket } from 'socket.io-client';
 // import { BASE_URL } from '@/Providers/Urls.tsx';
 import MyCanvas from '@/components/canvas';
 import Homedos from './pnp';
+import { number } from 'motion/react';
 const Home: React.FC = () => {
     const [state, setState] = React.useState<string>('');
     const [showPnp, setShowPnp] = React.useState<boolean>(false);
-    const [gamestate, setGamestate] = React.useState<any>(null);
+    const [gamestate, setGamestate] = React.useState<any>(
+        {
+            state: 0,
+            msg: 'Waiting for players...',
+        }
+    );
     const [player, setPlayer] = React.useState<number>(0);
     const [imPlayer, setImPlayer] = React.useState<number>(-2);
+    // const [myMap, setMyMap] = React.useState<Array<number>>([]);
     const imPlayerRef = useRef(imPlayer);
     useEffect(() => {
         imPlayerRef.current = imPlayer;
     }, [imPlayer]);
-    const [otherPlayer, setOtherPlayer] = React.useState<Array<number>>([]);
+    const [otherPlayer, setOtherPlayer] = React.useState<Array<number>>(Array.from({ length: 64 }, () => 0x80));
     const socket = useRef<Socket>(io('http://localhost:3000', {
         autoConnect: false,
     }));
@@ -58,7 +65,7 @@ const Home: React.FC = () => {
         }
         return arr;
     }
-    const [testData, _] = React.useState<Array<number>>(genMap());
+    const [myMap, setMyMap] = React.useState<Array<number>>(Array.from({ length: 64 }, () => 0));
     const connectWebSocket = () => {
         socket.current.connect();
         socket.current.on('connect', () => {
@@ -129,12 +136,15 @@ const Home: React.FC = () => {
                     if (socket.current.connected) {
                         socket.current.emit('map', {
                             player: imPlayer,
-                            map: testData
+                            map: myMap
                         });
                     }
                 }}>
                     Send
                 </Button>
+            </div>
+            <div>
+                Game State: {gamestate.state} - {gamestate.msg}
             </div>
             {
                 imPlayer !== -2 && (
@@ -142,13 +152,14 @@ const Home: React.FC = () => {
                 )
             }
             <div className='flex gap-8 mt-4'>
-            <MyCanvas data={testData} position={{ x: 0, y: 0 }} />
-            <MyCanvas data={testData} position={{ x: 0, y: 0 }} fogOfWar={true} />
+            <MyCanvas data={myMap} position={{ x: 0, y: 0 }} />
+            <MyCanvas data={otherPlayer} position={{ x: 0, y: 0 }} fogOfWar={false} />
             </div>
 
             {
                 showPnp ? (
                     <Homedos on_ready={(map: number[]) => {
+                        setMyMap(map);
                         alert('Map ready! Sending to server...');
                         setShowPnp(false);
                     }} />
@@ -161,65 +172,6 @@ const Home: React.FC = () => {
                 )
             }
             
-            {
-
-                // <div className='flex gap-8 mt-4'>
-                //     <div className='p-4'>
-                //         <div className='flex justify-between px-[50px]'>
-                //             <h2>Player 1</h2>
-                //             <h2>Score: {gamestate?.player1?.score || 0}</h2>
-                //         </div>
-                //         <div>
-                //             {"#ABCDEFGH".split("").map((char) => (
-                //                 <div key={char} style={{ width: 50, height: 50, display: 'inline-block', textAlign: 'center', lineHeight: '50px', fontWeight: 'bold' }}>
-                //                     {char}
-                //                 </div>
-                //             ))
-                //             }
-                //         </div>
-                //         <div className='flex flex-row'>
-                //             <div className='flex flex-col'>
-                //                 {"01234567".split("").map((char) => (
-                //                     <div key={char} style={{ width: 50, height: 50, display: 'inline-block', textAlign: 'center', lineHeight: '50px', fontWeight: 'bold' }}>
-                //                         {char}
-                //                     </div>
-                //                 ))
-                //                 }
-                //             </div>
-                //             <MyCanvas data={testData} />
-                //         </div>
-                //     </div>
-                //     {/* <div className='p-4'>
-                //             <div className='flex justify-between px-[50px]'>
-                //                 <h2>Player 2</h2>
-                //                 <h2>Score: {gamestate.player2.score || 0}</h2>
-                //             </div>
-                //             <div>
-                //                 {"#ABCDEFGH".split("").map((char) => (
-                //                     <div key={char} style={{ width: 50, height: 50, display: 'inline-block', textAlign: 'center', lineHeight: '50px', fontWeight: 'bold' }}>
-                //                         {char}
-                //                     </div>
-                //                 ))
-                //                 }
-                //             </div>
-                //             <div className='flex flex-row'>
-                //                 <div className='flex flex-col'>
-                //                     {"01234567".split("").map((char) => (
-                //                         <div key={char} style={{ width: 50, height: 50, display: 'inline-block', textAlign: 'center', lineHeight: '50px', fontWeight: 'bold' }}>
-                //                             {char}
-                //                         </div>
-                //                     ))
-                //                     }
-                //                 </div>
-                //                 <MyCanvas data={gamestate ? gamestate.player2.map : []} position={
-                //                     gamestate ? gamestate.player1.pos : { x: 0, y: 0 }
-                //                 } />
-                //             </div>
-                //         </div> */}
-                // </div>
-
-            }
-            {state}
         </div >
     );
 };
