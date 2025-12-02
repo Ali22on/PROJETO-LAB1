@@ -3,8 +3,10 @@ import React, { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 // import { BASE_URL } from '@/Providers/Urls.tsx';
 import MyCanvas from '@/components/canvas';
+import Homedos from './pnp';
 const Home: React.FC = () => {
     const [state, setState] = React.useState<string>('');
+    const [showPnp, setShowPnp] = React.useState<boolean>(false);
     const [gamestate, setGamestate] = React.useState<any>(null);
     const [player, setPlayer] = React.useState<number>(0);
     const [imPlayer, setImPlayer] = React.useState<number>(-2);
@@ -48,6 +50,11 @@ const Home: React.FC = () => {
         for (let i = arr.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        for (let i = 0; i < arr.length; i++) {
+            // add fog of war bit
+            if (Math.random() < 0.7)
+            arr[i] = arr[i] | 0x80;
         }
         return arr;
     }
@@ -136,8 +143,24 @@ const Home: React.FC = () => {
             }
             <div className='flex gap-8 mt-4'>
             <MyCanvas data={testData} position={{ x: 0, y: 0 }} />
-            <MyCanvas data={otherPlayer} position={{ x: 0, y: 0 }} />
+            <MyCanvas data={testData} position={{ x: 0, y: 0 }} fogOfWar={true} />
             </div>
+
+            {
+                showPnp ? (
+                    <Homedos on_ready={(map: number[]) => {
+                        alert('Map ready! Sending to server...');
+                        setShowPnp(false);
+                    }} />
+                ) : (
+                    <Button className='mt-4 bg-[blue] hover:bg-[darkblue]' onClick={() => {
+                        setShowPnp(true);
+                    }}>
+                        Setup your ships!
+                    </Button>
+                )
+            }
+            
             {
 
                 // <div className='flex gap-8 mt-4'>

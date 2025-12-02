@@ -104,7 +104,7 @@ const get_ship_type_from_block = (block: number): ShipType => {
 }
 const ships = Object.values(ShipType).filter(type => type !== ShipType.UNKNOWN);
 
-const Homedos: React.FC = () => {
+const Homedos: React.FC<{on_ready: (map: number[]) => void}> = ({on_ready}) => {
     const [map, setMap] = React.useState<number[]>(Array(64).fill(0));
     const [cursor, setCursor] = React.useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [rotation, setRotation] = React.useState<number>(0);
@@ -342,7 +342,7 @@ const Homedos: React.FC = () => {
                         )
                     })
                 }
-                <div>Rotation: {rotation}</div>
+                <div>Cursor: {String.fromCharCode(cursor.x + 65)}{cursor.y} {['N', 'E', 'S', 'W'][rotation / 90]}</div>
                 <div>Current Ship: {currentShip !== null ? ships[currentShip - 1] : 'None'}</div>
                 <Button className='mt-2' variant={'destructive'} onClick={() => {
                     if (confirm('Are you sure you want to clear the map?')) {
@@ -358,9 +358,13 @@ const Homedos: React.FC = () => {
                     }
                 }
                 }>Clear All</Button>
-                <Button className='mt-2 bg-[green] hover:bg-[darkgreen]' onClick={() => {
+                
+                <Button className='mt-2 bg-[green] hover:bg-[darkgreen]' 
+                disabled={map.filter(v => v !== 0).length < 12}
+                onClick={() => {
                     console.log('Final map:', map);
                     alert('Final map data logged to console.');
+                    on_ready(map);
                 }}>Finish Placement</Button>
             </div>
         </div>

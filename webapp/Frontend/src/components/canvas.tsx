@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { color_map, getBlockColor, ShipType } from '@/Pages/naval';
 import { Square } from 'lucide-react';
-const MyCanvas: React.FC = ({ data, position }) => {
+const MyCanvas: React.FC<{ data: number[]; position: { x: number; y: number }; fogOfWar?: boolean }> = ({ data, position, fogOfWar }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [positionState, _setPositionState] = React.useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const posState = useRef(positionState);
@@ -21,31 +21,6 @@ const MyCanvas: React.FC = ({ data, position }) => {
     });
   }, [position]);
 
-
-  useEffect(() => {
-    const keyEvent = (e) => {
-      switch (e.key) {
-        case 'ArrowUp':
-          setNewPos({ x: 0, y: -1 });
-          break;
-        case 'ArrowDown':
-          setNewPos({ x: 0, y: 1 });
-          break;
-        case 'ArrowLeft':
-          setNewPos({ x: -1, y: 0 });
-          break;
-        case 'ArrowRight':
-          setNewPos({ x: 1, y: 0 });
-          break;
-      }
-
-    };
-    window.addEventListener('keydown', keyEvent);
-    return () => {
-      window.removeEventListener('keydown', keyEvent);
-    };
-
-  }, [position]);
   console.log('Rendering canvas at position:', positionState);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -53,15 +28,13 @@ const MyCanvas: React.FC = ({ data, position }) => {
     // Example drawing: a red rectangle
     if (ctx) {
       ctx.clearRect(0, 0, canvas!.width, canvas!.height);
-      // ctx.fillStyle = 'white';
-      // ctx.fillRect(positionState.x , positionState.y , 50, 50);
+      ctx.fillStyle = 'white';
+      ctx.fillRect(positionState.x , positionState.y , 50, 50);
       if (Array.isArray(data)) {
         for (let i = 0; i < data.length; i++) {
-
           if (ctx) {
-            ctx.fillStyle = getBlockColor(data[i]);
+            ctx.fillStyle = getBlockColor(data[i], fogOfWar);
             ctx.fillRect((i % 8) * 50 + 2, Math.floor(i / 8) * 50 + 2, 46, 46);
-
           }
         }
 
@@ -99,9 +72,14 @@ const MyCanvas: React.FC = ({ data, position }) => {
           </div>
         ))}
         <div key={'miss'} className='flex items-center mt-2'>
+          <Square className='inline-block mr-2' size={16} fill='red' />
+          <span>{'Ship Hit'}</span>
+        </div>
+        <div key={'fow'} className='flex items-center mt-2'>
           <Square className='inline-block mr-2' size={16} fill='gray' />
           <span>{'Fog of war'}</span>
         </div>
+
       </div>
     </div>
   )

@@ -49,8 +49,8 @@ export const color_map = new Map<ShipType, string>([
 ]);
 
 
-export const getBlockColor = (byte: number) => {
-    if (is_hidden(byte)) {
+export const getBlockColor = (byte: number, fogOfWar?: boolean) => {
+    if (fogOfWar && is_hidden(byte)) {
         return 'gray'; // Hidden
     }
     else return color_map.get(ship_type(byte)) || 'blue'; //water
