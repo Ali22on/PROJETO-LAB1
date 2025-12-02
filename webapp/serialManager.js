@@ -79,6 +79,7 @@ const setOnFrameReceived = (callback) => {
 
 let sp = null;
 let gi = 0;
+let preambleDetected = 0;
 const startSerial = (port, baudRate) => {
     port = port || PORT;
     baudRate = baudRate || BAUD_RATE;
@@ -89,6 +90,17 @@ const startSerial = (port, baudRate) => {
     sp.on('data', (data) => {
         
         for (let i = 0; i < data.length; i++) {
+            if (data[i] === 0xFF) {
+                preambleDetected ++;
+                continue;
+            }
+            if (preambleDetected == 2) {
+                preambleDetected = 0;
+                gi = 0;
+                game_index = 0;
+                console.log('Preamble detected');
+                continue;
+            } 
             console.log(gi++, data[i], String.fromCharCode(data[i]));
             GAMESTATE[game_index] = data[i];
             game_index++;
