@@ -1,0 +1,104 @@
+-- Copyright (C) 2018  Intel Corporation. All rights reserved.
+-- Your use of Intel Corporation's design tools, logic functions 
+-- and other software and tools, and its AMPP partner logic 
+-- functions, and any output files from any of the foregoing 
+-- (including device programming or simulation files), and any 
+-- associated documentation or information are expressly subject 
+-- to the terms and conditions of the Intel Program License 
+-- Subscription Agreement, the Intel Quartus Prime License Agreement,
+-- the Intel FPGA IP License Agreement, or other applicable license
+-- agreement, including, without limitation, that your use is for
+-- the sole purpose of programming logic devices manufactured by
+-- Intel and sold by Intel or its authorized distributors.  Please
+-- refer to the applicable agreement for further details.
+
+-- Quartus Prime generated Memory Initialization File (.mif)
+
+WIDTH=8;
+DEPTH=512;
+
+ADDRESS_RADIX=UNS;
+DATA_RADIX=HEX;
+
+CONTENT BEGIN
+	[0..1]  :   FF;
+	2    :   05;
+	[3..5]  :   00;
+	6    :   08;
+	[7..10]  :   00;
+	11   :   04;
+	[12..14]  :   00;
+	15   :   08;
+	[16..19]  :   00;
+	20   :   03;
+	21   :   00;
+	22   :   08;
+	[23..28]  :   00;
+	29   :   02;
+	30   :   09;
+	31   :   00;
+	32   :   07;
+	33   :   06;
+	34   :   0A;
+	35   :   00;
+	36   :   0B;
+	37   :   00;
+	38   :   01;
+	39   :   09;
+	40   :   07;
+	41   :   06;
+	42   :   0A;
+	43   :   00;
+	44   :   0B;
+	45   :   00;
+	46   :   09;
+	47   :   00;
+	48   :   07;
+	49   :   06;
+	[50..55]  :   00;
+	56   :   07;
+	57   :   06;
+	[58..64]  :   00;
+	65   :   06;
+	66   :   05;
+	[67..69]  :   00;
+	70   :   08;
+	[71..74]  :   00;
+	75   :   04;
+	[76..78]  :   00;
+	79   :   08;
+	[80..83]  :   00;
+	84   :   03;
+	85   :   00;
+	86   :   08;
+	[87..92]  :   00;
+	93   :   02;
+	94   :   09;
+	95   :   00;
+	96   :   07;
+	97   :   06;
+	98   :   0A;
+	99   :   00;
+	100  :   0B;
+	101  :   00;
+	102  :   01;
+	103  :   09;
+	104  :   07;
+	105  :   06;
+	106  :   0A;
+	107  :   00;
+	108  :   0B;
+	109  :   00;
+	110  :   09;
+	111  :   00;
+	112  :   07;
+	113  :   06;
+	[114..119]  :   00;
+	120  :   07;
+	121  :   06;
+	[122..128]  :   00;
+	129  :   06;
+	[130..131]  :   00;
+	[132..133]  :   04;
+	[134..511]  :   00;
+END;
